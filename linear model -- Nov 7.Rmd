@@ -1,0 +1,168 @@
+---
+title: "linear models"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse) 
+library(broom)
+library(p8105.datasets)
+
+set.seed(1)
+
+```
+
+look at AIrbnb data....
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(boro = neighbourhood_group,
+         neighborhood = neighbourhood) %>% 
+  filter(boro != "Staten Island") %>% 
+  select(price, stars, boro, neighborhood, room_type)
+```
+
+Fit a model for price as an outcome
+```{r}
+fit =lm(price ~ stars + boro, data = nyc_airbnb)
+```
+
+look at the summaies
+```{r}
+summary(fit)
+summary(fit)$coef
+coef(fit)
+fitted.values(fit)
+```
+
+look at better summaries
+```{r}
+broom::tidy(fit)
+
+fit %>% 
+  broom::tidy() %>% 
+  select(term, estimate, p.value) %>% 
+  mutate(term = str_replace(term, "^boro", "Boro: ")) %>% 
+  knitr::kable(digits = 3)
+
+
+fit %>% 
+  broom::tidy() %>% 
+  select(term, estimate, p.value) %>% 
+  mutate(term = str_replace(term, "^boro", "Boro: "),
+         signif = ifelse(p.value < 0.05, "*", "")) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+look at other summaries
+```{r}
+fit %>% 
+  broom::glance() %>% 
+  select(r.squared, adj.r.squared)
+```
+
+be careful with factors....
+
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(boro = fct_infreq(boro),
+         room_type = fct_infreq(room_type)) %>% 
+  
+  fit = lm(price ~ stars+boro, data = nyc_airbnb)
+
+fit %>% 
+  broom::tidy()
+
+
+
+### diagnostics
+
+```{r}
+
+nyc_airbnb %>%     
+modelr::add_residuals(fit) %>% 
+  ggplot(aes(x = boro, y = resid)) + geom_violin()
+
+nyc_airbnb %>% 
+  modelr::add_residuals(fit) %>% 
+  ggplot(aes(x = stars, y = resid)) + geom_point()
+
+
+nyc_airbnb %>% 
+  modelr::add_predictions(fit) %>% 
+  ggplot(aes(x = stars, y = pred, color = boro)) + geom_point()
+```
+
+### hypothesis test
+
+```{r}
+fit %>% 
+  broom::tidy()
+```
+
+compare nested models
+```{r}
+fit_null = lm(price~ stars+boro, data = nyc_airbnb)
+fit_alt = lm(price ~stars+boro+room_type, data = nyc_airbnb)
+
+anova(fit_null, fit_alt) %>% 
+  broom::tidy()
+```
+
+###nested data
+```{r}
+nyc_airbnb %>% 
+  lm(price ~ stars * boro + room_type * boro, data = .) %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+```
+
+Nesting and then fitting
+```{r}
+nest_lm_res =
+  nyc_airbnb %>% 
+  group_by(boro) %>% 
+  nest() %>% 
+  mutate(models = map(data, ~lm(price ~ stars + room_type, data = .x)),
+         models = map(models, broom::tidy)) %>% 
+  select(-data) %>% 
+  unnest()
+```
+
+```{r}
+nest_lm_res %>% 
+  select(boro, term, estimate) %>% 
+  mutate(term = fct_inorder(term)) %>% 
+  spread(key = term, value = estimate) %>% 
+  knitr::kable(digits = 3)
+```
+
+more example...
+```{r}
+manhattan_airbnb =
+  nyc_airbnb %>% 
+  filter(boro == "Manhattan")
+
+manhattan_nest_lm_res =
+  manhattan_airbnb %>% 
+  group_by(neighborhood) %>% 
+  nest() %>% 
+  mutate(models = map(data, ~lm(price ~ stars + room_type, data = .x)),
+         models = map(models, broom::tidy)) %>% 
+  select(-data) %>% 
+  unnest()
+```
+
+View some results...
+```{r}
+manhattan_nest_lm_res %>% 
+  filter(str_detect(term, "room_type")) %>% 
+  ggplot(aes(x = neighborhood, y = estimate))+geom_point()+facet_grid(~term)+
+  theme(axis.text.x = element_text(angle = 80, hjust = 1))
+```
+
